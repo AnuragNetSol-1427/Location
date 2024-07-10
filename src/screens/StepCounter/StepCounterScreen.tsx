@@ -1,28 +1,26 @@
 import { View, Text, Button, StyleSheet } from 'react-native'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useNavigation } from '@react-navigation/native'
-import { addStepCountListener, removeStepCountListener, startStepCountingUpdates, stopStepCountingUpdates } from '../../NativeModules/index';
+import { startStepCounting, stopStepCounting } from '../../NativeModules/index';
 
 const StepCounterScreen = () => {
     const navigation = useNavigation();
-    const [steps, setSteps] = useState(0);
+    const [stepCount, setStepCount] = useState(0);
 
-    const startStepCounting = async () => {
-        try {
-            await startStepCountingUpdates();
-        } catch (error) {
-            console.error(error);
-        }
+   
+    const startCounting = () => {
+        const config = {
+            default_threshold: 15.0,
+            default_delay: 150000000,
+            cheatInterval: 3000,
+            onStepCountChange: (stepCount:any) => { setStepCount(stepCount) },
+            // onCheat: () => { console.log("User is Cheating") }
+          }
+          startStepCounting(config);
     };
-    const stepCountListener = addStepCountListener((event) => {
-        setSteps(event.stepCount);
-    });
 
-    // startPedometer();
-
-    const stopPedometer = () => {
-        stopStepCountingUpdates();
-        removeStepCountListener(stepCountListener);
+    const stopCounting = () => {
+        stopStepCounting();
     };
 
     return (
@@ -34,9 +32,9 @@ const StepCounterScreen = () => {
                 <Button title="Stop" onPress={() => stopStepCounter()} />
             </View> */}
             <View>
-                <Button title="Start" onPress={() => startStepCounting()} />
-                <Text>Steps: {steps}</Text>
-                <Button title="Stop" onPress={() => stopPedometer()} />
+                <Button title="Start" onPress={startCounting} />
+                <Text>Steps: {stepCount}</Text>
+                <Button title="Stop" onPress={stopCounting} />
             </View>
         </>
     )

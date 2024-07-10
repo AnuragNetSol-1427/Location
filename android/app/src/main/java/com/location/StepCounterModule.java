@@ -1,89 +1,107 @@
 package com.location;
 
-import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 
 import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
-public class StepCounterModule extends ReactContextBaseJavaModule implements SensorEventListener {
-    private final SensorManager sensorManager;
-    private final Sensor accelerometerSensor;
-    private float[] gravity = new float[3];
-    private float[] linearAcceleration = new float[3];
-    private int stepCount = 0;
+import static android.content.Context.SENSOR_SERVICE;
+
+
+public class StepCounterModule extends ReactContextBaseJavaModule implements SensorEventListener, StepListener {
+
+    private final ReactApplicationContext reactContext;
+    private StepDetector simpleStepDetector;
+    private SensorManager sensorManager;
+    private Sensor accel;
+    private int numSteps;
 
     public StepCounterModule(ReactApplicationContext reactContext) {
         super(reactContext);
-        sensorManager = (SensorManager) reactContext.getSystemService(Context.SENSOR_SERVICE);
-        accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        this.reactContext = reactContext;
     }
+
 
     @Override
     public String getName() {
         return "StepCounter";
     }
 
-    @ReactMethod
-    public void startStepCountingUpdates(Promise promise) {
-        if (accelerometerSensor != null) {
-            sensorManager.registerListener(this, accelerometerSensor, SensorManager.SENSOR_DELAY_UI);
-            promise.resolve(null);
-        } else {
-            promise.reject("ACCELEROMETER_NOT_AVAILABLE", "Accelerometer is not available");
-        }
-    }
 
     @ReactMethod
-    public void stopStepCountingUpdates() {
-        sensorManager.unregisterListener(this, accelerometerSensor);
+    public void startCounter(float THRESHOLD, int DELAY_NS){
+        numSteps = 0;
+        initStepCounter(THRESHOLD, DELAY_NS);
+        runStepCounter();
+        this.reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit("onStepStart",null);
+
     }
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            final float alpha = 0.8f;
+    @ReactMethod
+    public void defaultStartCounter(){
+        numSteps = 0;
+        defaultInitStepCounter();
+        runStepCounter();
+        this.reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit("onStepStart",null);
 
-            gravity[0] = alpha * gravity[0] + (1 - alpha) * event.values[0];
-            gravity[1] = alpha * gravity[1] + (1 - alpha) * event.values[1];
-            gravity[2] = alpha * gravity[2] + (1 - alpha) * event.values[2];
-
-            linearAcceleration[0] = event.values[0] - gravity[0];
-            linearAcceleration[1] = event.values[1] - gravity[1];
-            linearAcceleration[2] = event.values[2] - gravity[2];
-
-            double magnitude = Math.sqrt(linearAcceleration[0] * linearAcceleration[0]
-                    + linearAcceleration[1] * linearAcceleration[1]
-                    + linearAcceleration[2] * linearAcceleration[2]);
-
-            if (magnitude > 2) {
-                stepCount++;
-                sendStepCountToJS(stepCount);
-            }
-        }
     }
 
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // No need to implement this method for step counting
+    public void initStepCounter(float THRESHOLD, int DELAY_NS){
+        sensorManager = (SensorManager) reactContext.getSystemService(SENSOR_SERVICE);
+        accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        simpleStepDetector = new StepDetector(THRESHOLD, DELAY_NS);
+        simpleStepDetector.registerListener(this);
     }
 
-    private void sendStepCountToJS(int stepCount) {
+    public void defaultInitStepCounter(){
+        sensorManager = (SensorManager) reactContext.getSystemService(SENSOR_SERVICE);
+        accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        simpleStepDetector = new StepDetector();
+        simpleStepDetector.registerListener(this);
+    }
+
+    public void runStepCounter(){
+        sensorManager.registerListener(this, accel, SensorManager.SENSOR_DELAY_FASTEST);
+    }
+
+    public void onStepRunning(long newSteps){
         WritableMap params = Arguments.createMap();
-        params.putInt("stepCount", stepCount);
-        getReactApplicationContext()
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit("StepCountUpdated", params);
+        params.putString("steps", ""+newSteps);
+        this.reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit("onStepRunning",params);
+    }
+
+    @ReactMethod
+    public void stopCounter(){
+        sensorManager.unregisterListener(this);
+    }
+    @Override
+    public void onAccuracyChanged(Sensor s, int i){}
+
+
+    @Override
+    public void onSensorChanged(SensorEvent event){
+        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            simpleStepDetector.updateAccel(
+                    event.timestamp, event.values[0], event.values[1], event.values[2]);
+        }
+    }
+
+
+    @Override
+    public void step(long timeNs) {
+        numSteps++;
+        onStepRunning(numSteps);
     }
 }
-
 
 
